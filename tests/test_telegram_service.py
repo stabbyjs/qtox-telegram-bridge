@@ -63,6 +63,8 @@ class Recorder:
         self.decisions = []
         self.owner_set = []
         self.commands = []
+        self.toggled = []
+        self._view = [("notify_status", "Уведомления о статусах", True), ("silent", "Беззвучные", False)]
 
     async def on_outbound_text(self, thread_id, text, tg_msg_id):
         self.texts.append((thread_id, text, tg_msg_id))
@@ -76,9 +78,17 @@ class Recorder:
     async def on_owner_start(self, owner_id):
         self.owner_set.append(owner_id)
 
-    async def on_command(self, name, args):
-        self.commands.append((name, args))
+    async def on_command(self, name, args, thread_id):
+        self.commands.append((name, args, thread_id))
         return f"ответ:{name}"
+
+    async def on_settings(self):
+        return self._view
+
+    async def on_toggle(self, key):
+        self.toggled.append(key)
+        self._view = [(k, lbl, (not v if k == key else v)) for k, lbl, v in self._view]
+        return self._view
 
 
 def _make(tmp_path, config=None):
@@ -89,6 +99,8 @@ def _make(tmp_path, config=None):
         on_friend_decision=rec.on_friend_decision,
         on_owner_start=rec.on_owner_start,
         on_command=rec.on_command,
+        on_settings=rec.on_settings,
+        on_toggle=rec.on_toggle,
     )
     svc = TelegramService(bot, config or _config(), cb, tmp_dir=str(tmp_path))
     return svc, bot, rec
@@ -182,7 +194,7 @@ async def test_command_invokes_callback_and_replies(svc):
     service, bot, rec = svc
     msg = _owner_msg(text="/toxid", message_thread_id=None, is_topic_message=False)
     await service.handle_command(msg)
-    assert rec.commands == [("toxid", "")]
+    assert rec.commands == [("toxid", "", 0)]
     assert any(c[0] == "msg" and c[3] == "ответ:toxid" for c in bot.calls)
 
 
@@ -190,7 +202,7 @@ async def test_command_with_args(svc):
     service, bot, rec = svc
     msg = _owner_msg(text="/add ABCD hi there", message_thread_id=None, is_topic_message=False)
     await service.handle_command(msg)
-    assert rec.commands == [("add", "ABCD hi there")]
+    assert rec.commands == [("add", "ABCD hi there", 0)]
 
 
 async def test_command_from_stranger_ignored(svc):
@@ -266,3 +278,43 @@ async def test_start_from_stranger_ignored_when_configured(svc):
 
 async def _anoop(*a, **k):
     return None
+
+
+async def test_settings_command_shows_menu(svc):
+    service, bot, rec = svc
+    msg = _owner_msg(text="/settings", message_thread_id=None, is_topic_message=False)
+    await service.handle_command(msg)
+    markup = [c for c in bot.calls if c[0] == "msg" and c[4] is not None][-1][4]
+    datas = [b.callback_data for row in markup.inline_keyboard for b in row]
+    assert all(d.startswith("set:") for d in datas)
+    assert "set:notify_status" in datas
+
+
+async def test_settings_toggle_callback(svc):
+    service, bot, rec = svc
+    edited = []
+    cb = SimpleNamespace(
+        data="set:silent",
+        from_user=SimpleNamespace(id=OWNER),
+        answer=_anoop,
+        message=SimpleNamespace(edit_reply_markup=lambda **kw: _record(edited, kw)),
+    )
+    await service.handle_callback(cb)
+    assert rec.toggled == ["silent"]
+    assert edited and edited[0]["reply_markup"] is not None
+
+
+async def test_settings_toggle_from_stranger_denied(svc):
+    service, bot, rec = svc
+    cb = SimpleNamespace(
+        data="set:silent",
+        from_user=SimpleNamespace(id=999),
+        answer=_anoop,
+        message=SimpleNamespace(edit_reply_markup=_anoop),
+    )
+    await service.handle_callback(cb)
+    assert rec.toggled == []
+
+
+async def _record(store, kw):
+    store.append(kw)

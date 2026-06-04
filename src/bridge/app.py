@@ -24,6 +24,7 @@ from .models import (
     InboundTyping,
 )
 from .router import Router
+from .settings import Settings
 from .store import Store
 from .telegram_service import TelegramCallbacks, TelegramService
 from .tox_service import ToxService
@@ -53,6 +54,9 @@ async def run(env: Optional[Mapping[str, str]] = None) -> None:
     store = Store(config.db_path)
     await store.init()
 
+    settings = Settings(store)
+    await settings.load()
+
     owner = config.telegram_owner_id
     if owner is None:
         meta_owner = await store.get_meta("owner_id")
@@ -79,8 +83,14 @@ async def run(env: Optional[Mapping[str, str]] = None) -> None:
         await store.set_meta("owner_id", str(owner_id))
         log.info("owner_id установлен: %s", owner_id)
 
-    async def on_command(name: str, args: str) -> str:
-        return await router.handle_command(name, args)
+    async def on_command(name: str, args: str, thread_id: int) -> str:
+        return await router.handle_command(name, args, thread_id)
+
+    async def on_settings():
+        return router.settings_view()
+
+    async def on_toggle(key: str):
+        return await router.toggle_setting(key)
 
     callbacks = TelegramCallbacks(
         on_outbound_text=on_outbound_text,
@@ -88,12 +98,14 @@ async def run(env: Optional[Mapping[str, str]] = None) -> None:
         on_friend_decision=on_friend_decision,
         on_owner_start=on_owner_start,
         on_command=on_command,
+        on_settings=on_settings,
+        on_toggle=on_toggle,
     )
     tg = TelegramService(bot, config, callbacks, tmp_dir=config.tmp_dir)
     if owner is not None:
         tg.set_owner_id(owner)
 
-    router = Router(store, tg, tox)
+    router = Router(store, tg, tox, settings)
 
     async def dispatch(event) -> None:
         method = _DISPATCH.get(type(event))

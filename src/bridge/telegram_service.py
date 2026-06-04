@@ -1,8 +1,8 @@
 """Адаптер Telegram на aiogram v3: топики в личном чате с ботом.
 
-Реализует ``TopicSink`` и принимает апдейты владельца, передавая их в колбэки
-роутера. Режим ``private`` держит топики прямо в личке (Bot API 9.4+), режим
-``supergroup`` - в forum-супергруппе.
+Реализует TopicSink и принимает апдейты владельца, передавая их в колбэки
+роутера. Режим private держит топики прямо в личке (Bot API 9.4+), режим
+supergroup - в forum-супергруппе.
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ log = logging.getLogger(__name__)
 # getFile в Bot API отдаёт не больше 20 МБ.
 DOWNLOAD_LIMIT_BYTES = 20 * 1024 * 1024
 
+SettingsView = list  # list[tuple[str, str, bool]]
+
 
 @dataclass
 class TelegramCallbacks:
@@ -30,7 +32,18 @@ class TelegramCallbacks:
     on_outbound_file: Callable[[int, str, str], Awaitable[None]]
     on_friend_decision: Callable[[int, bool], Awaitable[None]]
     on_owner_start: Callable[[int], Awaitable[None]]
-    on_command: Callable[[str, str], Awaitable[str]]
+    on_command: Callable[[str, str, int], Awaitable[str]]
+    on_settings: Callable[[], Awaitable[SettingsView]]
+    on_toggle: Callable[[str], Awaitable[SettingsView]]
+
+
+def _settings_markup(view: SettingsView):
+    builder = InlineKeyboardBuilder()
+    for key, label, enabled in view:
+        mark = "✅" if enabled else "⬜"
+        builder.button(text=f"{mark} {label}", callback_data=f"set:{key}")
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 class TelegramService:
@@ -65,7 +78,6 @@ class TelegramService:
         return self._owner_id is not None and user_id == self._owner_id
 
     def _is_allowed(self, message) -> bool:
-        # И отправитель должен быть владельцем, и чат - нашим целевым.
         if not self._is_owner(getattr(message.from_user, "id", None)):
             return False
         if self._config.topic_mode is TopicMode.SUPERGROUP:
@@ -88,26 +100,32 @@ class TelegramService:
         except Exception:
             log.debug("не удалось переименовать топик %s", thread_id, exc_info=True)
 
-    async def send_text(self, thread_id: int, text: str) -> Optional[int]:
+    async def send_text(self, thread_id: int, text: str, silent: bool = False) -> Optional[int]:
         msg = await self._bot.send_message(
-            chat_id=self._target(), message_thread_id=thread_id, text=text
+            chat_id=self._target(),
+            message_thread_id=thread_id,
+            text=text,
+            disable_notification=silent,
         )
         return getattr(msg, "message_id", None)
 
-    async def send_file(self, thread_id: int, path: str, as_photo: bool) -> None:
+    async def send_file(self, thread_id: int, path: str, as_photo: bool, silent: bool = False) -> None:
         target = self._target()
         if as_photo:
             await self._bot.send_photo(
-                chat_id=target, message_thread_id=thread_id, photo=FSInputFile(path)
+                chat_id=target, message_thread_id=thread_id,
+                photo=FSInputFile(path), disable_notification=silent,
             )
         else:
             await self._bot.send_document(
-                chat_id=target, message_thread_id=thread_id, document=FSInputFile(path)
+                chat_id=target, message_thread_id=thread_id,
+                document=FSInputFile(path), disable_notification=silent,
             )
 
-    async def notify(self, thread_id: int, text: str) -> None:
+    async def notify(self, thread_id: int, text: str, silent: bool = False) -> None:
         await self._bot.send_message(
-            chat_id=self._target(), message_thread_id=thread_id, text=text
+            chat_id=self._target(), message_thread_id=thread_id,
+            text=text, disable_notification=silent,
         )
 
     async def send_typing(self, thread_id: int) -> None:
@@ -162,12 +180,20 @@ class TelegramService:
         raw = (message.text or "")[1:]
         name, _, args = raw.partition(" ")
         name = name.split("@", 1)[0].lower()
-        reply = await self._cb.on_command(name, args.strip())
-        if reply:
+        thread = getattr(message, "message_thread_id", None)
+        if name == "settings":
+            view = await self._cb.on_settings()
             await self._bot.send_message(
                 chat_id=message.chat.id,
-                message_thread_id=getattr(message, "message_thread_id", None),
-                text=reply,
+                message_thread_id=thread,
+                text="Настройки. Нажми, чтобы переключить:",
+                reply_markup=_settings_markup(view),
+            )
+            return
+        reply = await self._cb.on_command(name, args.strip(), thread or 0)
+        if reply:
+            await self._bot.send_message(
+                chat_id=message.chat.id, message_thread_id=thread, text=reply
             )
 
     async def handle_message(self, message) -> None:
@@ -194,7 +220,6 @@ class TelegramService:
         filename = default_name or safe_filename(getattr(item, "file_name", None) or "file.bin")
         dest = unique_path(self._tmp_dir, filename)
         await self._bot.download(item, destination=dest)
-        # Размер мог быть не указан заранее - проверяем фактический.
         try:
             if os.path.getsize(dest) > DOWNLOAD_LIMIT_BYTES:
                 os.remove(dest)
@@ -208,7 +233,16 @@ class TelegramService:
         if not self._is_owner(getattr(callback.from_user, "id", None)):
             await callback.answer("Недоступно")
             return
-        parts = (callback.data or "").split(":")
+        data = callback.data or ""
+        if data.startswith("set:"):
+            view = await self._cb.on_toggle(data[4:])
+            await callback.answer("Готово")
+            try:
+                await callback.message.edit_reply_markup(reply_markup=_settings_markup(view))
+            except Exception:
+                log.debug("меню настроек не обновлено", exc_info=True)
+            return
+        parts = data.split(":")
         if len(parts) != 3 or parts[0] != "fr":
             return
         accept = parts[1] == "a"
@@ -232,10 +266,12 @@ class TelegramService:
         r.message.register(
             self.handle_command,
             Command(commands=[
-                "help", "toxid", "friends", "status", "add", "del",
-                "setname", "setstatus", "online", "away", "busy",
+                "help", "settings", "toxid", "friends", "status", "add", "del",
+                "setname", "setstatus", "online", "away", "busy", "mute", "unmute",
             ]),
         )
         r.message.register(self.handle_message)
-        r.callback_query.register(self.handle_callback, F.data.startswith("fr:"))
+        r.callback_query.register(
+            self.handle_callback, F.data.startswith("fr:") | F.data.startswith("set:")
+        )
         dp.include_router(r)
