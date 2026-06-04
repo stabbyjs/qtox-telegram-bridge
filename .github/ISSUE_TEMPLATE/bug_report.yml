@@ -1,0 +1,139 @@
+name: Баг-репорт
+description: Что-то сломалось в мосте qTox → Telegram. Опиши, что произошло.
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что нашёл время написать. Заполни поля ниже - чем конкретнее,
+        тем быстрее получится починить.
+
+        Перед отправкой загляни в уже открытые issue: возможно, про эту проблему
+        уже знают. И, пожалуйста, не вставляй сюда секреты - токен бота,
+        пароль от профиля, содержимое `.env`. Логи перед вставкой почисти.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Перед отправкой
+      options:
+        - label: Я поискал среди открытых issue и не нашёл дубликата
+          required: true
+        - label: В логах и описании нет токенов, паролей и прочих секретов
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Что случилось
+      description: Опиши проблему в двух-трёх предложениях, как рассказал бы коллеге.
+      placeholder: |
+        Сообщения из qTox долетают в Telegram, но файлы не приходят - бот молчит,
+        в логах ничего подозрительного.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      description: Пошагово, что именно ты делал. Чем дословнее, тем лучше.
+      placeholder: |
+        1. Поднял контейнер через `docker compose up -d`
+        2. Отправил себе файл из qTox размером ~3 МБ
+        3. В Telegram пришло уведомление о новом сообщении, но файла нет
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Чего ты ожидал
+      description: Как должно было сработать в идеале.
+      placeholder: Файл должен был прийти в соответствующий топик в Telegram.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что произошло на самом деле
+      description: Фактическое поведение. Тексты ошибок, странности, всё подряд.
+      placeholder: Файл не пришёл, в чате только текстовое уведомление, бот не отвечает.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: topic_mode
+    attributes:
+      label: Режим топиков (TELEGRAM_TOPIC_MODE)
+      description: Какое значение стоит у тебя в `.env`.
+      options:
+        - "private (топики прямо в личке с ботом, по умолчанию)"
+        - "supergroup (топики в forum-супергруппе)"
+        - "Не знаю / не настраивал"
+    validations:
+      required: true
+
+  - type: input
+    id: docker_version
+    attributes:
+      label: Версия Docker
+      description: "Вывод `docker --version` (или `docker compose version`)."
+      placeholder: "Docker version 27.3.1, build ce12230"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Версия Python
+      description: >
+        Если запускаешь в Docker - оставь "из образа". Если гоняешь локально через
+        uv - вставь вывод `.venv/bin/python --version` (проект требует 3.12-3.14).
+      placeholder: "из образа / Python 3.12.7"
+    validations:
+      required: true
+
+  - type: input
+    id: bridge_version
+    attributes:
+      label: Версия моста
+      description: Тег, ветка или короткий хэш коммита, на котором собран контейнер.
+      placeholder: "v0.1.0 / main @ a1b2c3d"
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Где запущено
+      description: ОС и окружение, где крутится мост.
+      placeholder: "Ubuntu 24.04 на VPS / macOS 15 локально"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: >
+        Кусок логов вокруг момента ошибки - `docker compose logs bridge`.
+        ВАЖНО: вычисти токен бота, пароль профиля и прочие секреты, прежде чем
+        вставлять. Этот блок отрендерится как код, оборачивать в ``` не нужно.
+      render: shell
+      placeholder: |
+        bridge  | 2026-06-04 12:00:01 INFO  Tox профиль загружен
+        bridge  | 2026-06-04 12:00:05 ERROR Не удалось переслать файл: ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Что-нибудь ещё
+      description: Скриншоты, гипотезы, контекст - всё, что может пригодиться.
+    validations:
+      required: false

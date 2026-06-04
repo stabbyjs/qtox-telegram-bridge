@@ -1,0 +1,10 @@
+services:
+  bridge:
+    build: .
+    image: qtox-telegram-bridge:latest
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Сюда положи stabby.tox; здесь же живут bridge.db и временные файлы.
+      - ./data:/data
+    # На VPS этого достаточно; локально на маке - то же самое.

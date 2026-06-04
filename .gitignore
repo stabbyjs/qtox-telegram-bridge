@@ -1,0 +1,20 @@
+.env
+.env.*
+!.env.example
+data/
+*.tox
+*.db
+tmp/
+__pycache__/
+*.pyc
+.venv/
+.coverage
+htmlcov/
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+
+# локальные артефакты сессии
+.claude/
+uv.lock

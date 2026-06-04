@@ -1,0 +1,45 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Runtime data and secrets - никогда не должны попасть в образ
+data/
+*.tox
+*.db
+.env
+.env.*
+!.env.example
+
+# Python virtualenv и кеши
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.ruff_cache/
+
+# Тесты и их артефакты
+tests/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Сборочные артефакты пакета
+*.egg-info/
+dist/
+build/
+tmp/
+
+# Документация (в образе не нужна; README оставлен для контекста сборки)
+docs/
+
+# Редакторы и ОС
+.claude/
+.idea/
+.vscode/
+.DS_Store
+*.swp
